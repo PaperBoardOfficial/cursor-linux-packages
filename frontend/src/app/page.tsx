@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Download, Github, RefreshCw, Package, Cpu } from "lucide-react";
 import Image from "next/image";
 import axios from "axios";
@@ -27,11 +27,7 @@ export default function Home() {
     process.env.NEXT_PUBLIC_GITHUB_REPO ||
     "PaperBoardOfficial/cursor-linux-packages";
 
-  useEffect(() => {
-    fetchReleases();
-  }, []);
-
-  const fetchReleases = async () => {
+  const fetchReleases = useCallback(async () => {
     try {
       const response = await axios.get(
         `https://api.github.com/repos/${GITHUB_REPO}/releases`
@@ -50,7 +46,11 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [GITHUB_REPO]);
+
+  useEffect(() => {
+    fetchReleases();
+  }, [fetchReleases]);
 
   const formatFileSize = (bytes: number) => {
     const sizes = ["Bytes", "KB", "MB", "GB"];
@@ -266,9 +266,7 @@ export default function Home() {
                       <h4 className="text-lg font-semibold text-white">
                         ARM64 / AArch64
                       </h4>
-                      <p className="text-sm text-gray-400">
-                        ARM processors
-                      </p>
+                      <p className="text-sm text-gray-400">ARM processors</p>
                     </div>
                   </div>
                   <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
