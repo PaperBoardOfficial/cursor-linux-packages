@@ -1,0 +1,369 @@
+name: Build Cursor Packages
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: "0 2 * * *"
+  workflow_dispatch: # Allow manual triggering
+  push:
+    branches: [main]
+    paths: [".github/workflows/build-packages.yml"]
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      download_url: ${{ steps.check.outputs.download_url }}
+      commit_sha: ${{ steps.check.outputs.commit_sha }}
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for new version
+        id: check
+        run: |
+          # Fetch latest version info from Cursor API
+          RESPONSE=$(curl -s "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable")
+          VERSION=$(echo "$RESPONSE" | jq -r '.version')
+          DOWNLOAD_URL=$(echo "$RESPONSE" | jq -r '.downloadUrl')
+          COMMIT_SHA=$(echo "$RESPONSE" | jq -r '.commitSha')
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+          echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+
+          # Check if this version already exists as a release
+          if gh release view "v$VERSION" --repo ${{ github.repository }} >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists, skipping build"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version $VERSION found, will build packages"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-packages:
+    needs: check-version
+    if: needs.check-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            dpkg-dev \
+            rpm \
+            imagemagick \
+            jq \
+            curl \
+            fakeroot \
+            alien
+
+      - name: Download and extract AppImage
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          DOWNLOAD_URL="${{ needs.check-version.outputs.download_url }}"
+
+          echo "Downloading Cursor $VERSION from $DOWNLOAD_URL"
+          curl -L -o "Cursor-$VERSION-x86_64.AppImage" "$DOWNLOAD_URL"
+          chmod +x "Cursor-$VERSION-x86_64.AppImage"
+
+          # Extract AppImage
+          "./Cursor-$VERSION-x86_64.AppImage" --appimage-extract
+          mv squashfs-root cursor-$VERSION
+
+      - name: Build DEB package
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          PACKAGE_NAME="cursor"
+          ARCHITECTURE="amd64"
+          MAINTAINER="Cursor Linux Packages <noreply@github.com>"
+          PACKAGE_DIR="cursor_${VERSION}_${ARCHITECTURE}"
+
+          # Create package directory structure
+          mkdir -p "$PACKAGE_DIR/DEBIAN"
+          mkdir -p "$PACKAGE_DIR/opt/Cursor"
+          mkdir -p "$PACKAGE_DIR/usr/share/applications"
+          mkdir -p "$PACKAGE_DIR/usr/share/icons/hicolor/"{16x16,32x32,48x48,64x64,128x128,256x256}"/apps"
+          mkdir -p "$PACKAGE_DIR/usr/share/doc/cursor"
+          mkdir -p "$PACKAGE_DIR/usr/bin"
+
+          # Create control file
+          cat > "$PACKAGE_DIR/DEBIAN/control" << EOF
+          Package: $PACKAGE_NAME
+          Version: $VERSION
+          Architecture: $ARCHITECTURE
+          Maintainer: $MAINTAINER
+          Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0
+          Recommends: libappindicator3-1
+          Section: editors
+          Priority: optional
+          Homepage: https://cursor.so
+          Description: Cursor - AI-first coding environment
+           Cursor is an AI-first coding environment designed to help developers
+           build software faster with AI assistance.
+          EOF
+
+          # Copy application files
+          cp -r cursor-$VERSION/* "$PACKAGE_DIR/opt/Cursor/"
+
+          # Create desktop file
+          cat > "$PACKAGE_DIR/usr/share/applications/cursor.desktop" << EOF
+          [Desktop Entry]
+          Name=Cursor
+          Exec=/opt/Cursor/cursor %U
+          Terminal=false
+          Type=Application
+          Icon=cursor
+          StartupWMClass=Cursor
+          Comment=Cursor is an AI-first coding environment.
+          MimeType=x-scheme-handler/cursor;
+          Categories=Development;IDE;
+          EOF
+
+          # Handle icon if it exists
+          if [ -f "cursor-$VERSION/co.anysphere.cursor.png" ]; then
+            SOURCE_ICON="cursor-$VERSION/co.anysphere.cursor.png"
+            ICON_SIZES=(16 32 48 64 128 256)
+            for size in "${ICON_SIZES[@]}"; do
+              target_dir="$PACKAGE_DIR/usr/share/icons/hicolor/${size}x${size}/apps"
+              if command -v convert &> /dev/null; then
+                convert "$SOURCE_ICON" -resize ${size}x${size} "$target_dir/cursor.png"
+              else
+                cp "$SOURCE_ICON" "$target_dir/cursor.png"
+              fi
+            done
+          fi
+
+          # Create postinst script
+          cat > "$PACKAGE_DIR/DEBIAN/postinst" << 'EOF'
+          #!/bin/bash
+          set -e
+
+          # Create symlink for command line usage
+          if type update-alternatives 2>/dev/null >&1; then
+              if [ -L '/usr/bin/cursor' -a -e '/usr/bin/cursor' -a "`readlink '/usr/bin/cursor'`" != '/etc/alternatives/cursor' ]; then
+                  rm -f '/usr/bin/cursor'
+              fi
+              update-alternatives --install '/usr/bin/cursor' 'cursor' '/opt/Cursor/cursor' 100 || ln -sf '/opt/Cursor/cursor' '/usr/bin/cursor'
+          else
+              ln -sf '/opt/Cursor/cursor' '/usr/bin/cursor'
+          fi
+
+          # Set proper permissions
+          if ! { [[ -L /proc/self/ns/user ]] && unshare --user true; }; then
+              chmod 4755 '/opt/Cursor/chrome-sandbox' || true
+          else
+              chmod 0755 '/opt/Cursor/chrome-sandbox' || true
+          fi
+
+          # Update desktop database
+          if hash update-mime-database 2>/dev/null; then
+              update-mime-database /usr/share/mime || true
+          fi
+
+          if hash update-desktop-database 2>/dev/null; then
+              update-desktop-database /usr/share/applications || true
+          fi
+          EOF
+
+          # Create postrm script
+          cat > "$PACKAGE_DIR/DEBIAN/postrm" << 'EOF'
+          #!/bin/bash
+          set -e
+
+          # Remove symlink
+          if type update-alternatives >/dev/null 2>&1; then
+              update-alternatives --remove 'cursor' '/opt/Cursor/cursor' || true
+          else
+              rm -f '/usr/bin/cursor'
+          fi
+          EOF
+
+          # Make scripts executable
+          chmod 755 "$PACKAGE_DIR/DEBIAN/postinst"
+          chmod 755 "$PACKAGE_DIR/DEBIAN/postrm"
+
+          # Set proper permissions
+          chmod 755 "$PACKAGE_DIR/opt/Cursor/cursor"
+          find "$PACKAGE_DIR/opt/Cursor" -name "*.so*" -exec chmod 755 {} \; || true
+
+          # Generate md5sums
+          cd "$PACKAGE_DIR"
+          find . -type f ! -path "./DEBIAN/*" -exec md5sum {} \; | sed 's/\.\///' > DEBIAN/md5sums
+          chmod 644 DEBIAN/md5sums
+          cd ..
+
+          # Build DEB package
+          dpkg-deb --build --root-owner-group "$PACKAGE_DIR"
+
+          echo "DEB package created: ${PACKAGE_DIR}.deb"
+
+      - name: Build RPM package
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+
+          # Create RPM build directories
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+
+          # Create spec file
+          cat > ~/rpmbuild/SPECS/cursor.spec << EOF
+          Name:           cursor
+          Version:        $VERSION
+          Release:        1%{?dist}
+          Summary:        Cursor - AI-first coding environment
+          License:        Proprietary
+          URL:            https://cursor.so
+          BuildArch:      x86_64
+          Requires:       gtk3, libnotify, nss, libXScrnSaver, libXtst, xdg-utils, at-spi2-atk, libuuid, libsecret
+
+          %description
+          Cursor is an AI-first coding environment designed to help developers
+          build software faster with AI assistance.
+
+          %prep
+          # No prep needed for binary package
+
+          %build
+          # No build needed for binary package
+
+          %install
+          rm -rf \$RPM_BUILD_ROOT
+          mkdir -p \$RPM_BUILD_ROOT/opt/Cursor
+          mkdir -p \$RPM_BUILD_ROOT/usr/share/applications
+          mkdir -p \$RPM_BUILD_ROOT/usr/share/icons/hicolor/{16x16,32x32,48x48,64x64,128x128,256x256}/apps
+          mkdir -p \$RPM_BUILD_ROOT/usr/bin
+
+          # Copy application files
+          cp -r %{_sourcedir}/cursor-$VERSION/* \$RPM_BUILD_ROOT/opt/Cursor/
+
+          # Create desktop file
+          cat > \$RPM_BUILD_ROOT/usr/share/applications/cursor.desktop << 'DESKTOP_EOF'
+          [Desktop Entry]
+          Name=Cursor
+          Exec=/opt/Cursor/cursor %U
+          Terminal=false
+          Type=Application
+          Icon=cursor
+          StartupWMClass=Cursor
+          Comment=Cursor is an AI-first coding environment.
+          MimeType=x-scheme-handler/cursor;
+          Categories=Development;IDE;
+          DESKTOP_EOF
+
+          # Create symlink
+          ln -sf /opt/Cursor/cursor \$RPM_BUILD_ROOT/usr/bin/cursor
+
+          %files
+          /opt/Cursor/*
+          /usr/share/applications/cursor.desktop
+          /usr/bin/cursor
+
+          %post
+          # Update desktop database
+          if [ -x /usr/bin/update-desktop-database ]; then
+              /usr/bin/update-desktop-database /usr/share/applications || true
+          fi
+
+          %postun
+          # Update desktop database
+          if [ -x /usr/bin/update-desktop-database ]; then
+              /usr/bin/update-desktop-database /usr/share/applications || true
+          fi
+
+          %changelog
+          * $(date '+%a %b %d %Y') GitHub Actions <noreply@github.com> - $VERSION-1
+          - Automated build of Cursor $VERSION
+          EOF
+
+          # Copy source files
+          cp -r cursor-$VERSION ~/rpmbuild/SOURCES/
+
+          # Build RPM
+          rpmbuild -bb ~/rpmbuild/SPECS/cursor.spec
+
+          # Copy the built RPM to current directory
+          cp ~/rpmbuild/RPMS/x86_64/cursor-$VERSION-1.*.rpm ./
+
+          echo "RPM package created: cursor-$VERSION-1.*.rpm"
+
+      - name: Create Release
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          COMMIT_SHA="${{ needs.check-version.outputs.commit_sha }}"
+
+          # Create release notes
+          cat > release-notes.md << EOF
+          # Cursor $VERSION
+
+          This release contains automatically generated Linux packages for Cursor $VERSION.
+
+          ## Installation
+
+          ### Debian/Ubuntu (.deb)
+          \`\`\`bash
+          wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor_${VERSION}_amd64.deb
+          sudo dpkg -i cursor_${VERSION}_amd64.deb
+          sudo apt-get install -f  # Fix any missing dependencies
+          \`\`\`
+
+          ### RHEL/Fedora/CentOS (.rpm)
+          \`\`\`bash
+          wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor-$VERSION-1.x86_64.rpm
+          sudo rpm -i cursor-$VERSION-1.x86_64.rpm
+          # or
+          sudo dnf install cursor-$VERSION-1.x86_64.rpm
+          \`\`\`
+
+          ## Package Details
+          - **Upstream Version**: $VERSION
+          - **Commit SHA**: $COMMIT_SHA
+          - **Build Date**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          - **Architecture**: x86_64 (amd64)
+
+          ## Usage
+          After installation, you can launch Cursor from:
+          - Applications menu
+          - Command line: \`cursor\`
+
+          ## Issues
+          If you encounter any issues with these packages, please report them at: https://github.com/${{ github.repository }}/issues
+          EOF
+
+          # Create the release
+          gh release create "v$VERSION" \
+            --title "Cursor $VERSION" \
+            --notes-file release-notes.md \
+            cursor_${VERSION}_amd64.deb \
+            cursor-$VERSION-1.*.rpm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update latest release info
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          COMMIT_SHA="${{ needs.check-version.outputs.commit_sha }}"
+
+          # Create a JSON file with latest release info for the frontend
+          cat > latest-release.json << EOF
+          {
+            "version": "$VERSION",
+            "commit_sha": "$COMMIT_SHA",
+            "release_date": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+            "deb_download_url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor_${VERSION}_amd64.deb",
+            "rpm_download_url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor-$VERSION-1.x86_64.rpm"
+          }
+          EOF
+
+          # Commit and push the latest release info
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add latest-release.json
+          git commit -m "Update latest release info for v$VERSION" || exit 0
+          git push
