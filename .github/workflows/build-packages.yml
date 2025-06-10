@@ -74,57 +74,91 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Cache APT packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/apt/archives
+            /var/lib/apt/lists
+          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/build-packages.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+
+      - name: Cache AppImage downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            Cursor-*.AppImage
+          key: cursor-appimage-${{ needs.check-version.outputs.version }}-${{ matrix.arch }}
+          restore-keys: |
+            cursor-appimage-${{ needs.check-version.outputs.version }}-
+
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          # Use faster mirrors and parallel downloads
+          echo 'APT::Acquire::Retries "3";' | sudo tee -a /etc/apt/apt.conf.d/80-retries
+          echo 'APT::Acquire::http::Dl-Limit "0";' | sudo tee -a /etc/apt/apt.conf.d/80-no-limit
+          echo 'Acquire::Languages "none";' | sudo tee -a /etc/apt/apt.conf.d/80-no-translations
+
+          # Only update if cache is empty
+          if [ ! -f /var/lib/apt/lists/lock ]; then
+            sudo apt-get update
+          fi
+
+          # Install all dependencies in one command with minimal output
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             dpkg-dev \
             rpm \
             imagemagick \
             jq \
             curl \
             fakeroot \
-            alien
+            alien \
+            squashfs-tools
 
       - name: Download and extract AppImage
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           DOWNLOAD_URL="${{ needs.check-version.outputs[matrix.download_url_key] }}"
+          APPIMAGE_FILE="Cursor-$VERSION-${{ matrix.arch }}.AppImage"
 
-          echo "Downloading Cursor $VERSION (${{ matrix.arch }}) from $DOWNLOAD_URL"
-          curl -L -o "Cursor-$VERSION-${{ matrix.arch }}.AppImage" "$DOWNLOAD_URL"
-          chmod +x "Cursor-$VERSION-${{ matrix.arch }}.AppImage"
+          # Only download if not cached
+          if [ ! -f "$APPIMAGE_FILE" ]; then
+            echo "Downloading Cursor $VERSION (${{ matrix.arch }}) from $DOWNLOAD_URL"
+            curl -L -o "$APPIMAGE_FILE" "$DOWNLOAD_URL"
+          else
+            echo "Using cached AppImage: $APPIMAGE_FILE"
+          fi
+
+          chmod +x "$APPIMAGE_FILE"
 
           # Extract AppImage based on architecture
           if [ "${{ matrix.arch }}" = "x64" ]; then
             # x86_64 can be executed directly
-            "./Cursor-$VERSION-${{ matrix.arch }}.AppImage" --appimage-extract
+            "./$APPIMAGE_FILE" --appimage-extract
           else
             # ARM64 needs different extraction method (can't execute on x86_64 runner)
-            # Install squashfs-tools for extraction
-            sudo apt-get update && sudo apt-get install -y squashfs-tools
-            
             # AppImages contain a SquashFS filesystem after the ELF header
             # Find the SquashFS magic bytes and extract from there
-            SQUASHFS_OFFSET=$(grep -aboP '\x68\x73\x71\x73' "Cursor-$VERSION-${{ matrix.arch }}.AppImage" | head -1 | cut -d: -f1)
+            SQUASHFS_OFFSET=$(grep -aboP '\x68\x73\x71\x73' "$APPIMAGE_FILE" | head -1 | cut -d: -f1)
             if [ -z "$SQUASHFS_OFFSET" ]; then
               # Try alternative SquashFS magic
-              SQUASHFS_OFFSET=$(grep -aboP '\x73\x71\x73\x68' "Cursor-$VERSION-${{ matrix.arch }}.AppImage" | head -1 | cut -d: -f1)
+              SQUASHFS_OFFSET=$(grep -aboP '\x73\x71\x73\x68' "$APPIMAGE_FILE" | head -1 | cut -d: -f1)
             fi
             
             if [ -n "$SQUASHFS_OFFSET" ]; then
               echo "Found SquashFS at offset: $SQUASHFS_OFFSET"
-              # Extract the SquashFS part
-              dd if="Cursor-$VERSION-${{ matrix.arch }}.AppImage" of="cursor.squashfs" bs=1 skip="$SQUASHFS_OFFSET" 2>/dev/null
+              # Extract the SquashFS part with optimized block size
+              dd if="$APPIMAGE_FILE" of="cursor.squashfs" bs=4096 skip=$((SQUASHFS_OFFSET / 4096)) iflag=skip_bytes 2>/dev/null
               # Extract using unsquashfs
               unsquashfs -d squashfs-root cursor.squashfs
               rm cursor.squashfs
             else
               echo "Could not find SquashFS in AppImage, trying direct unsquashfs..."
-              unsquashfs -d squashfs-root "Cursor-$VERSION-${{ matrix.arch }}.AppImage" || {
+              unsquashfs -d squashfs-root "$APPIMAGE_FILE" || {
                 echo "Direct unsquashfs failed, trying offset extraction..."
-                # Fallback: try common AppImage offset
-                dd if="Cursor-$VERSION-${{ matrix.arch }}.AppImage" of="cursor.squashfs" bs=1 skip=188416 2>/dev/null
+                # Fallback: try common AppImage offset with optimized block size
+                dd if="$APPIMAGE_FILE" of="cursor.squashfs" bs=4096 skip=46 2>/dev/null
                 unsquashfs -d squashfs-root cursor.squashfs
                 rm cursor.squashfs
               }
