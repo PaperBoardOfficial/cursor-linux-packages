@@ -136,7 +136,7 @@ jobs:
 
           # If the executable is not named 'cursor', create a symlink
           if [ "$MAIN_EXECUTABLE" != "cursor" ] && [ -n "$MAIN_EXECUTABLE" ]; then
-            ln -sf "/opt/Cursor/$MAIN_EXECUTABLE" "$PACKAGE_DIR/opt/Cursor/cursor"
+            ln -sf "$MAIN_EXECUTABLE" "$PACKAGE_DIR/opt/Cursor/cursor"
           fi
 
           # Create desktop file
