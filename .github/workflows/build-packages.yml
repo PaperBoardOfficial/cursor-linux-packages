@@ -108,13 +108,17 @@ jobs:
           # Install all dependencies in one command with minimal output
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             dpkg-dev \
-            rpm \
             imagemagick \
             jq \
             curl \
             fakeroot \
-            alien \
-            squashfs-tools
+            squashfs-tools \
+            ruby \
+            ruby-dev \
+            build-essential
+
+          # Install fpm for better package building
+          sudo gem install fpm
 
       - name: Download and extract AppImage
         run: |
@@ -176,25 +180,53 @@ jobs:
       - name: Build DEB package
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
-          PACKAGE_NAME="cursor"
           ARCHITECTURE="${{ matrix.deb_arch }}"
-          MAINTAINER="Cursor Linux Packages <noreply@github.com>"
           PACKAGE_DIR="cursor_${VERSION}_${ARCHITECTURE}"
+
+          # Helper function to find main executable
+          find_main_executable() {
+            local search_dir="$1"
+            if [ -f "$search_dir/cursor" ]; then
+              echo "cursor"
+            elif [ -f "$search_dir/Cursor" ]; then
+              echo "Cursor"
+            elif [ -f "$search_dir/AppRun" ]; then
+              echo "AppRun"
+            else
+              find "$search_dir" -maxdepth 1 -type f -executable | head -1 | xargs basename 2>/dev/null || echo ""
+            fi
+          }
+
+          # Helper function to handle icon installation
+          install_icon() {
+            local source_icon="$1"
+            local target_base_dir="$2"
+            if [ -f "$source_icon" ]; then
+              local icon_sizes=(16 32 48 64 128 256)
+              for size in "${icon_sizes[@]}"; do
+                local target_dir="$target_base_dir/usr/share/icons/hicolor/${size}x${size}/apps"
+                if command -v convert &> /dev/null; then
+                  convert "$source_icon" -resize ${size}x${size} "$target_dir/cursor.png"
+                else
+                  cp "$source_icon" "$target_dir/cursor.png"
+                fi
+              done
+            fi
+          }
 
           # Create package directory structure
           mkdir -p "$PACKAGE_DIR/DEBIAN"
           mkdir -p "$PACKAGE_DIR/opt/Cursor"
           mkdir -p "$PACKAGE_DIR/usr/share/applications"
           mkdir -p "$PACKAGE_DIR/usr/share/icons/hicolor/"{16x16,32x32,48x48,64x64,128x128,256x256}"/apps"
-          mkdir -p "$PACKAGE_DIR/usr/share/doc/cursor"
           mkdir -p "$PACKAGE_DIR/usr/bin"
 
           # Create control file
           cat > "$PACKAGE_DIR/DEBIAN/control" << EOF
-          Package: $PACKAGE_NAME
+          Package: cursor
           Version: $VERSION
           Architecture: $ARCHITECTURE
-          Maintainer: $MAINTAINER
+          Maintainer: Cursor Linux Packages <noreply@github.com>
           Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0
           Recommends: libappindicator3-1
           Section: editors
@@ -209,17 +241,7 @@ jobs:
           cp -r cursor-$VERSION-${{ matrix.arch }}/* "$PACKAGE_DIR/opt/Cursor/"
 
           # Find the main executable (could be 'cursor', 'Cursor', or 'AppRun')
-          MAIN_EXECUTABLE=""
-          if [ -f "$PACKAGE_DIR/opt/Cursor/cursor" ]; then
-            MAIN_EXECUTABLE="cursor"
-          elif [ -f "$PACKAGE_DIR/opt/Cursor/Cursor" ]; then
-            MAIN_EXECUTABLE="Cursor"
-          elif [ -f "$PACKAGE_DIR/opt/Cursor/AppRun" ]; then
-            MAIN_EXECUTABLE="AppRun"
-          else
-            # Find any executable file that might be the main app
-            MAIN_EXECUTABLE=$(find "$PACKAGE_DIR/opt/Cursor/" -maxdepth 1 -type f -executable | head -1 | xargs basename)
-          fi
+          MAIN_EXECUTABLE=$(find_main_executable "$PACKAGE_DIR/opt/Cursor")
 
           echo "Found main executable: $MAIN_EXECUTABLE"
 
@@ -243,18 +265,7 @@ jobs:
           EOF
 
           # Handle icon if it exists
-          if [ -f "cursor-$VERSION-${{ matrix.arch }}/co.anysphere.cursor.png" ]; then
-            SOURCE_ICON="cursor-$VERSION-${{ matrix.arch }}/co.anysphere.cursor.png"
-            ICON_SIZES=(16 32 48 64 128 256)
-            for size in "${ICON_SIZES[@]}"; do
-              target_dir="$PACKAGE_DIR/usr/share/icons/hicolor/${size}x${size}/apps"
-              if command -v convert &> /dev/null; then
-                convert "$SOURCE_ICON" -resize ${size}x${size} "$target_dir/cursor.png"
-              else
-                cp "$SOURCE_ICON" "$target_dir/cursor.png"
-              fi
-            done
-          fi
+          install_icon "cursor-$VERSION-${{ matrix.arch }}/co.anysphere.cursor.png" "$PACKAGE_DIR"
 
           # Create postinst script
           cat > "$PACKAGE_DIR/DEBIAN/postinst" << 'EOF'
@@ -332,43 +343,58 @@ jobs:
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
 
-          # Create RPM build directories
-          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          # Helper function to find main executable
+          find_main_executable() {
+            local search_dir="$1"
+            if [ -f "$search_dir/cursor" ]; then
+              echo "cursor"
+            elif [ -f "$search_dir/Cursor" ]; then
+              echo "Cursor"
+            elif [ -f "$search_dir/AppRun" ]; then
+              echo "AppRun"
+            else
+              find "$search_dir" -maxdepth 1 -type f -executable | head -1 | xargs basename 2>/dev/null || echo ""
+            fi
+          }
 
-          # Create spec file with correct architecture
-          cat > ~/rpmbuild/SPECS/cursor.spec << EOF
-          Name:           cursor
-          Version:        $VERSION
-          Release:        1%{?dist}
-          Summary:        Cursor - AI-first coding environment
-          License:        Proprietary
-          URL:            https://cursor.so
-          BuildArch:      ${{ matrix.rpm_arch }}
-          Requires:       gtk3, libnotify, nss, libXScrnSaver, libXtst, xdg-utils, at-spi2-atk, libuuid, libsecret
-          AutoReqProv:    no
+          # Helper function to handle icon installation
+          install_icon() {
+            local source_icon="$1"
+            local target_base_dir="$2"
+            if [ -f "$source_icon" ]; then
+              local icon_sizes=(16 32 48 64 128 256)
+              for size in "${icon_sizes[@]}"; do
+                local target_dir="$target_base_dir/usr/share/icons/hicolor/${size}x${size}/apps"
+                if command -v convert &> /dev/null; then
+                  convert "$source_icon" -resize ${size}x${size} "$target_dir/cursor.png"
+                else
+                  cp "$source_icon" "$target_dir/cursor.png"
+                fi
+              done
+            fi
+          }
 
-          %description
-          Cursor is an AI-first coding environment designed to help developers
-          build software faster with AI assistance.
-
-          %prep
-          # No prep needed for binary package
-
-          %build
-          # No build needed for binary package
-
-          %install
-          rm -rf \$RPM_BUILD_ROOT
-          mkdir -p \$RPM_BUILD_ROOT/opt/Cursor
-          mkdir -p \$RPM_BUILD_ROOT/usr/share/applications
-          mkdir -p \$RPM_BUILD_ROOT/usr/share/icons/hicolor/{16x16,32x32,48x48,64x64,128x128,256x256}/apps
-          mkdir -p \$RPM_BUILD_ROOT/usr/bin
+          # Create temporary directory for RPM contents
+          mkdir -p rpm-staging/opt/Cursor
+          mkdir -p rpm-staging/usr/share/applications
+          mkdir -p rpm-staging/usr/share/icons/hicolor/{16x16,32x32,48x48,64x64,128x128,256x256}/apps
+          mkdir -p rpm-staging/usr/bin
 
           # Copy application files
-          cp -r %{_sourcedir}/cursor-$VERSION-${{ matrix.arch }}/* \$RPM_BUILD_ROOT/opt/Cursor/
+          cp -r cursor-$VERSION-${{ matrix.arch }}/* rpm-staging/opt/Cursor/
+
+          # Find and create symlink for main executable
+          MAIN_EXECUTABLE=$(find_main_executable "rpm-staging/opt/Cursor")
+
+          echo "Found main executable: $MAIN_EXECUTABLE"
+
+          # Create cursor symlink if needed
+          if [ "$MAIN_EXECUTABLE" != "cursor" ] && [ -n "$MAIN_EXECUTABLE" ]; then
+            ln -sf "$MAIN_EXECUTABLE" "rpm-staging/opt/Cursor/cursor"
+          fi
 
           # Create desktop file
-          cat > \$RPM_BUILD_ROOT/usr/share/applications/cursor.desktop << 'DESKTOP_EOF'
+          cat > rpm-staging/usr/share/applications/cursor.desktop << EOF
           [Desktop Entry]
           Name=Cursor
           Exec=/opt/Cursor/cursor %U
@@ -379,45 +405,56 @@ jobs:
           Comment=Cursor is an AI-first coding environment.
           MimeType=x-scheme-handler/cursor;
           Categories=Development;IDE;
-          DESKTOP_EOF
-
-          # Create symlink
-          ln -sf /opt/Cursor/cursor \$RPM_BUILD_ROOT/usr/bin/cursor
-
-          %files
-          /opt/Cursor/*
-          /usr/share/applications/cursor.desktop
-          /usr/bin/cursor
-
-          %post
-          # Update desktop database
-          if [ -x /usr/bin/update-desktop-database ]; then
-              /usr/bin/update-desktop-database /usr/share/applications || true
-          fi
-
-          %postun
-          # Update desktop database
-          if [ -x /usr/bin/update-desktop-database ]; then
-              /usr/bin/update-desktop-database /usr/share/applications || true
-          fi
-
-          %changelog
-          * $(date '+%a %b %d %Y') GitHub Actions <noreply@github.com> - $VERSION-1
-          - Automated build of Cursor $VERSION
           EOF
 
-          # Copy source files
-          cp -r cursor-$VERSION-${{ matrix.arch }} ~/rpmbuild/SOURCES/
+          # Create symlink for command line usage
+          ln -sf /opt/Cursor/cursor rpm-staging/usr/bin/cursor
 
-          # Build RPM with flags to disable architecture validation and dependency generation
-          rpmbuild -bb \
-            --target ${{ matrix.rpm_arch }} \
-            --define "_build_arch ${{ matrix.rpm_arch }}" \
-            --define "_rpmdir ~/rpmbuild/RPMS" \
-            ~/rpmbuild/SPECS/cursor.spec
+          # Handle icon if it exists
+          install_icon "cursor-$VERSION-${{ matrix.arch }}/co.anysphere.cursor.png" "rpm-staging"
 
-          # Copy the built RPM to current directory
-          cp ~/rpmbuild/RPMS/${{ matrix.rpm_arch }}/cursor-$VERSION-1.*.rpm ./
+          # Build RPM using fpm (much more flexible for cross-architecture)
+          fpm -s dir -t rpm \
+            --name cursor \
+            --version "$VERSION" \
+            --iteration 1 \
+            --architecture ${{ matrix.rpm_arch }} \
+            --description "Cursor - AI-first coding environment" \
+            --url "https://cursor.so" \
+            --license "Proprietary" \
+            --vendor "Cursor Linux Packages" \
+            --maintainer "Cursor Linux Packages <noreply@github.com>" \
+            --depends "gtk3" \
+            --depends "libnotify" \
+            --depends "nss" \
+            --depends "libXScrnSaver" \
+            --depends "libXtst" \
+            --depends "xdg-utils" \
+            --depends "at-spi2-atk" \
+            --depends "libuuid" \
+            --depends "libsecret" \
+            --rpm-summary "Cursor - AI-first coding environment" \
+            --after-install <(cat << 'AFTER_INSTALL_EOF'
+#!/bin/bash
+# Update desktop database
+if [ -x /usr/bin/update-desktop-database ]; then
+    /usr/bin/update-desktop-database /usr/share/applications || true
+fi
+AFTER_INSTALL_EOF
+) \
+            --after-remove <(cat << 'AFTER_REMOVE_EOF'
+#!/bin/bash
+# Update desktop database
+if [ -x /usr/bin/update-desktop-database ]; then
+    /usr/bin/update-desktop-database /usr/share/applications || true
+fi
+AFTER_REMOVE_EOF
+) \
+            --chdir rpm-staging \
+            .
+
+          # Clean up
+          rm -rf rpm-staging
 
           echo "RPM package created: cursor-$VERSION-1.${{ matrix.rpm_arch }}.rpm"
 
