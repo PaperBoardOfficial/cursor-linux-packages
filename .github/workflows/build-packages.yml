@@ -3,7 +3,6 @@ name: Build Cursor Packages
 permissions:
   contents: write
   packages: write
-  releases: write
 
 on:
   schedule:
