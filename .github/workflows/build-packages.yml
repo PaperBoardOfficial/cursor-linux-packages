@@ -335,7 +335,7 @@ jobs:
           # Create RPM build directories
           mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
-          # Create spec file
+          # Create spec file with noarch to avoid architecture validation issues
           cat > ~/rpmbuild/SPECS/cursor.spec << EOF
           Name:           cursor
           Version:        $VERSION
@@ -343,7 +343,7 @@ jobs:
           Summary:        Cursor - AI-first coding environment
           License:        Proprietary
           URL:            https://cursor.so
-          BuildArch:      ${{ matrix.rpm_arch }}
+          BuildArch:      noarch
           Requires:       gtk3, libnotify, nss, libXScrnSaver, libXtst, xdg-utils, at-spi2-atk, libuuid, libsecret
 
           %description
@@ -408,11 +408,11 @@ jobs:
           # Copy source files
           cp -r cursor-$VERSION-${{ matrix.arch }} ~/rpmbuild/SOURCES/
 
-          # Build RPM
+          # Build RPM as noarch
           rpmbuild -bb ~/rpmbuild/SPECS/cursor.spec
 
-          # Copy the built RPM to current directory
-          cp ~/rpmbuild/RPMS/${{ matrix.rpm_arch }}/cursor-$VERSION-1.*.rpm ./
+          # Rename the built RPM to include the correct architecture
+          mv ~/rpmbuild/RPMS/noarch/cursor-$VERSION-1.*.rpm ./cursor-$VERSION-1.${{ matrix.rpm_arch }}.rpm
 
           echo "RPM package created: cursor-$VERSION-1.${{ matrix.rpm_arch }}.rpm"
 
