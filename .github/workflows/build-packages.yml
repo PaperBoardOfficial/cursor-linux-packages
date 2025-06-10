@@ -254,7 +254,7 @@ jobs:
           cat > "$PACKAGE_DIR/usr/share/applications/cursor.desktop" << EOF
           [Desktop Entry]
           Name=Cursor
-          Exec=/opt/Cursor/cursor %U
+          Exec=/opt/Cursor/cursor --no-sandbox %U
           Terminal=false
           Type=Application
           Icon=cursor
@@ -397,7 +397,7 @@ jobs:
           cat > rpm-staging/usr/share/applications/cursor.desktop << EOF
           [Desktop Entry]
           Name=Cursor
-          Exec=/opt/Cursor/cursor %U
+          Exec=/opt/Cursor/cursor --no-sandbox %U
           Terminal=false
           Type=Application
           Icon=cursor

@@ -194,17 +194,17 @@ export default function Home() {
           <>
             {latestRelease && (
               <div className="mb-16">
-                <h3 className="text-2xl font-semibold mb-8">
+                <h3 className="text-2xl font-semibold mb-8 text-center">
                   Latest Version ({latestRelease.tag_name.replace("v", "")})
                 </h3>
 
                 {/* x86_64 Architecture */}
                 <div className="mb-8">
-                  <div className="flex items-center space-x-3 mb-4">
+                  <div className="flex items-center justify-center space-x-3 mb-4">
                     <div className="bg-blue-500/20 p-2 rounded-lg">
                       <Cpu className="w-5 h-5 text-blue-400" />
                     </div>
-                    <div>
+                    <div className="text-center">
                       <h4 className="text-lg font-semibold text-white">
                         x86_64 / AMD64
                       </h4>
@@ -258,16 +258,16 @@ export default function Home() {
 
                 {/* ARM64 Architecture */}
                 <div className="mb-8">
-                  <div className="flex items-center space-x-3 mb-4">
+                  <div className="flex items-center justify-center space-x-3 mb-4">
                     <div className="bg-green-500/20 p-2 rounded-lg">
                       <Cpu className="w-5 h-5 text-green-400" />
                     </div>
-                    <div>
+                    <div className="text-center">
                       <h4 className="text-lg font-semibold text-white">
                         ARM64 / AArch64
                       </h4>
                       <p className="text-sm text-gray-400">
-                        ARM processors (Apple Silicon, Raspberry Pi)
+                        ARM processors
                       </p>
                     </div>
                   </div>
