@@ -101,11 +101,34 @@ jobs:
             "./Cursor-$VERSION-${{ matrix.arch }}.AppImage" --appimage-extract
           else
             # ARM64 needs different extraction method (can't execute on x86_64 runner)
-            # Install 7zip for extraction
-            sudo apt-get update && sudo apt-get install -y p7zip-full
+            # Install squashfs-tools for extraction
+            sudo apt-get update && sudo apt-get install -y squashfs-tools
             
-            # Extract AppImage using 7zip (AppImages are ISO9660 filesystems)
-            7z x "Cursor-$VERSION-${{ matrix.arch }}.AppImage" -osquashfs-root
+            # AppImages contain a SquashFS filesystem after the ELF header
+            # Find the SquashFS magic bytes and extract from there
+            SQUASHFS_OFFSET=$(grep -aboP '\x68\x73\x71\x73' "Cursor-$VERSION-${{ matrix.arch }}.AppImage" | head -1 | cut -d: -f1)
+            if [ -z "$SQUASHFS_OFFSET" ]; then
+              # Try alternative SquashFS magic
+              SQUASHFS_OFFSET=$(grep -aboP '\x73\x71\x73\x68' "Cursor-$VERSION-${{ matrix.arch }}.AppImage" | head -1 | cut -d: -f1)
+            fi
+            
+            if [ -n "$SQUASHFS_OFFSET" ]; then
+              echo "Found SquashFS at offset: $SQUASHFS_OFFSET"
+              # Extract the SquashFS part
+              dd if="Cursor-$VERSION-${{ matrix.arch }}.AppImage" of="cursor.squashfs" bs=1 skip="$SQUASHFS_OFFSET" 2>/dev/null
+              # Extract using unsquashfs
+              unsquashfs -d squashfs-root cursor.squashfs
+              rm cursor.squashfs
+            else
+              echo "Could not find SquashFS in AppImage, trying direct unsquashfs..."
+              unsquashfs -d squashfs-root "Cursor-$VERSION-${{ matrix.arch }}.AppImage" || {
+                echo "Direct unsquashfs failed, trying offset extraction..."
+                # Fallback: try common AppImage offset
+                dd if="Cursor-$VERSION-${{ matrix.arch }}.AppImage" of="cursor.squashfs" bs=1 skip=188416 2>/dev/null
+                unsquashfs -d squashfs-root cursor.squashfs
+                rm cursor.squashfs
+              }
+            fi
           fi
 
           mv squashfs-root cursor-$VERSION-${{ matrix.arch }}
