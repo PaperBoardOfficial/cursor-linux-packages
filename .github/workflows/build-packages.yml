@@ -1,5 +1,10 @@
 name: Build Cursor Packages
 
+permissions:
+  contents: write
+  packages: write
+  releases: write
+
 on:
   schedule:
     # Run daily at 2 AM UTC
