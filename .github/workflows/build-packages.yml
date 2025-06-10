@@ -415,22 +415,18 @@ jobs:
 
           # Build RPM using fpm (much more flexible for cross-architecture)
           # Create post-install script
-          cat > post-install.sh << 'POST_INSTALL_EOF'
-#!/bin/bash
-# Update desktop database
-if [ -x /usr/bin/update-desktop-database ]; then
-    /usr/bin/update-desktop-database /usr/share/applications || true
-fi
-POST_INSTALL_EOF
+          echo '#!/bin/bash' > post-install.sh
+          echo '# Update desktop database' >> post-install.sh
+          echo 'if [ -x /usr/bin/update-desktop-database ]; then' >> post-install.sh
+          echo '    /usr/bin/update-desktop-database /usr/share/applications || true' >> post-install.sh
+          echo 'fi' >> post-install.sh
 
           # Create post-remove script
-          cat > post-remove.sh << 'POST_REMOVE_EOF'
-#!/bin/bash
-# Update desktop database
-if [ -x /usr/bin/update-desktop-database ]; then
-    /usr/bin/update-desktop-database /usr/share/applications || true
-fi
-POST_REMOVE_EOF
+          echo '#!/bin/bash' > post-remove.sh
+          echo '# Update desktop database' >> post-remove.sh
+          echo 'if [ -x /usr/bin/update-desktop-database ]; then' >> post-remove.sh
+          echo '    /usr/bin/update-desktop-database /usr/share/applications || true' >> post-remove.sh
+          echo 'fi' >> post-remove.sh
 
           fpm -s dir -t rpm \
             --name cursor \
