@@ -148,8 +148,8 @@ jobs:
             
             if [ -n "$SQUASHFS_OFFSET" ]; then
               echo "Found SquashFS at offset: $SQUASHFS_OFFSET"
-              # Extract the SquashFS part with optimized block size
-              dd if="$APPIMAGE_FILE" of="cursor.squashfs" bs=4096 skip=$((SQUASHFS_OFFSET / 4096)) iflag=skip_bytes 2>/dev/null
+              # Extract the SquashFS part using tail (faster and more reliable)
+              tail -c +$((SQUASHFS_OFFSET + 1)) "$APPIMAGE_FILE" > cursor.squashfs
               # Extract using unsquashfs
               unsquashfs -d squashfs-root cursor.squashfs
               rm cursor.squashfs
@@ -157,8 +157,8 @@ jobs:
               echo "Could not find SquashFS in AppImage, trying direct unsquashfs..."
               unsquashfs -d squashfs-root "$APPIMAGE_FILE" || {
                 echo "Direct unsquashfs failed, trying offset extraction..."
-                # Fallback: try common AppImage offset with optimized block size
-                dd if="$APPIMAGE_FILE" of="cursor.squashfs" bs=4096 skip=46 2>/dev/null
+                # Fallback: try common AppImage offset
+                tail -c +188417 "$APPIMAGE_FILE" > cursor.squashfs
                 unsquashfs -d squashfs-root cursor.squashfs
                 rm cursor.squashfs
               }
