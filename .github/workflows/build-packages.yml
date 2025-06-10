@@ -95,8 +95,19 @@ jobs:
           curl -L -o "Cursor-$VERSION-${{ matrix.arch }}.AppImage" "$DOWNLOAD_URL"
           chmod +x "Cursor-$VERSION-${{ matrix.arch }}.AppImage"
 
-          # Extract AppImage
-          "./Cursor-$VERSION-${{ matrix.arch }}.AppImage" --appimage-extract
+          # Extract AppImage based on architecture
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            # x86_64 can be executed directly
+            "./Cursor-$VERSION-${{ matrix.arch }}.AppImage" --appimage-extract
+          else
+            # ARM64 needs different extraction method (can't execute on x86_64 runner)
+            # Install 7zip for extraction
+            sudo apt-get update && sudo apt-get install -y p7zip-full
+            
+            # Extract AppImage using 7zip (AppImages are ISO9660 filesystems)
+            7z x "Cursor-$VERSION-${{ matrix.arch }}.AppImage" -osquashfs-root
+          fi
+
           mv squashfs-root cursor-$VERSION-${{ matrix.arch }}
 
           # Debug: List extracted contents
