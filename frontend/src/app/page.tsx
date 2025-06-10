@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Download, Github, RefreshCw, Package } from "lucide-react";
+import { Download, Github, RefreshCw, Package, Cpu } from "lucide-react";
 import Image from "next/image";
+import axios from "axios";
 
 interface Release {
   tag_name: string;
@@ -32,16 +33,20 @@ export default function Home() {
 
   const fetchReleases = async () => {
     try {
-      const response = await fetch(
+      const response = await axios.get(
         `https://api.github.com/repos/${GITHUB_REPO}/releases`
       );
-      if (!response.ok) {
-        throw new Error("Failed to fetch releases");
-      }
-      const data = await response.json();
-      setReleases(data);
+      setReleases(response.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      if (axios.isAxiosError(err)) {
+        setError(
+          err.response?.data?.message ||
+            err.message ||
+            "Failed to fetch releases"
+        );
+      } else {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      }
     } finally {
       setLoading(false);
     }
@@ -128,7 +133,7 @@ export default function Home() {
             </span>
           </h1>
           <p className="text-xl text-gray-300 max-w-3xl mx-auto mb-12 leading-relaxed">
-            Get Cursor with native DEB and RPM packages.
+            Get Cursor with native DEB and RPM packages for x86_64 and ARM64.
             <br />
             Automatically updated daily from official releases.
           </p>
@@ -156,7 +161,8 @@ export default function Home() {
         <div className="text-center mb-16">
           <h2 className="text-4xl font-bold mb-4">Download Cursor</h2>
           <p className="text-xl text-gray-400">
-            Choose your package format to download the latest version of Cursor
+            Choose your package format and architecture to download the latest
+            version of Cursor
           </p>
         </div>
 
@@ -191,47 +197,121 @@ export default function Home() {
                 <h3 className="text-2xl font-semibold mb-8">
                   Latest Version ({latestRelease.tag_name.replace("v", "")})
                 </h3>
-                <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-                  {latestRelease.assets.map((asset) => (
-                    <div
-                      key={asset.name}
-                      className="bg-gray-900 border border-gray-700 rounded-lg p-6 hover:border-gray-600 transition-colors group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-3 mb-2">
-                            <div
-                              className={`w-3 h-3 rounded-full ${
-                                asset.name.endsWith(".deb")
-                                  ? "bg-orange-500"
-                                  : "bg-red-500"
-                              }`}
-                            ></div>
-                            <h4 className="text-lg font-medium">
-                              {asset.name.endsWith(".deb")
-                                ? "Debian/Ubuntu"
-                                : "RHEL/Fedora/CentOS"}
-                            </h4>
-                          </div>
-                          <p className="text-gray-400 text-sm mb-1">
-                            {asset.name.endsWith(".deb")
-                              ? "DEB Package"
-                              : "RPM Package"}
-                          </p>
-                          <p className="text-gray-500 text-xs">
-                            {formatFileSize(asset.size)} •{" "}
-                            {asset.download_count} downloads
-                          </p>
-                        </div>
-                        <a
-                          href={asset.browser_download_url}
-                          className="bg-white text-black px-6 py-3 rounded-lg font-medium hover:bg-gray-100 transition-colors flex items-center space-x-2 group-hover:scale-105 transform transition-transform"
-                        >
-                          <Download className="w-4 h-4" />
-                        </a>
-                      </div>
+
+                {/* x86_64 Architecture */}
+                <div className="mb-8">
+                  <div className="flex items-center space-x-3 mb-4">
+                    <div className="bg-blue-500/20 p-2 rounded-lg">
+                      <Cpu className="w-5 h-5 text-blue-400" />
                     </div>
-                  ))}
+                    <div>
+                      <h4 className="text-lg font-semibold text-white">
+                        x86_64 / AMD64
+                      </h4>
+                      <p className="text-sm text-gray-400">
+                        Intel & AMD processors
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+                    {latestRelease.assets
+                      .filter(
+                        (asset) =>
+                          asset.name.includes("amd64") ||
+                          asset.name.includes("x86_64")
+                      )
+                      .map((asset) => (
+                        <div
+                          key={asset.name}
+                          className="bg-gray-950 border border-gray-800 rounded-lg p-6 hover:border-gray-700 transition-colors group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-3 mb-2">
+                                <h5 className="text-lg font-medium">
+                                  {asset.name.endsWith(".deb")
+                                    ? "Debian/Ubuntu"
+                                    : "RHEL/Fedora/CentOS"}
+                                </h5>
+                              </div>
+                              <p className="text-gray-400 text-sm mb-1">
+                                {asset.name.endsWith(".deb")
+                                  ? "DEB Package"
+                                  : "RPM Package"}
+                              </p>
+                              <p className="text-gray-500 text-xs">
+                                {formatFileSize(asset.size)} •{" "}
+                                {asset.download_count} downloads
+                              </p>
+                            </div>
+                            <a
+                              href={asset.browser_download_url}
+                              className="bg-white text-black px-6 py-3 rounded-lg font-medium hover:bg-gray-100 transition-colors flex items-center space-x-2 group-hover:scale-105 transform transition-transform"
+                            >
+                              <Download className="w-4 h-4" />
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* ARM64 Architecture */}
+                <div className="mb-8">
+                  <div className="flex items-center space-x-3 mb-4">
+                    <div className="bg-green-500/20 p-2 rounded-lg">
+                      <Cpu className="w-5 h-5 text-green-400" />
+                    </div>
+                    <div>
+                      <h4 className="text-lg font-semibold text-white">
+                        ARM64 / AArch64
+                      </h4>
+                      <p className="text-sm text-gray-400">
+                        ARM processors (Apple Silicon, Raspberry Pi)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+                    {latestRelease.assets
+                      .filter(
+                        (asset) =>
+                          asset.name.includes("arm64") ||
+                          asset.name.includes("aarch64")
+                      )
+                      .map((asset) => (
+                        <div
+                          key={asset.name}
+                          className="bg-gray-950 border border-gray-800 rounded-lg p-6 hover:border-gray-700 transition-colors group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-3 mb-2">
+                                <h5 className="text-lg font-medium">
+                                  {asset.name.endsWith(".deb")
+                                    ? "Debian/Ubuntu"
+                                    : "RHEL/Fedora/CentOS"}
+                                </h5>
+                              </div>
+                              <p className="text-gray-400 text-sm mb-1">
+                                {asset.name.endsWith(".deb")
+                                  ? "DEB Package"
+                                  : "RPM Package"}
+                              </p>
+                              <p className="text-gray-500 text-xs">
+                                {formatFileSize(asset.size)} •{" "}
+                                {asset.download_count} downloads
+                              </p>
+                            </div>
+                            <a
+                              href={asset.browser_download_url}
+                              className="bg-white text-black px-6 py-3 rounded-lg font-medium hover:bg-gray-100 transition-colors flex items-center space-x-2 group-hover:scale-105 transform transition-transform"
+                            >
+                              <Download className="w-4 h-4" />
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -241,13 +321,13 @@ export default function Home() {
                 <h3 className="text-2xl font-semibold mb-8">
                   Previous Versions
                 </h3>
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {releases.slice(1, 6).map((release) => (
                     <div
                       key={release.tag_name}
-                      className="bg-gray-900 border border-gray-700 rounded-lg p-6"
+                      className="bg-gray-950 border border-gray-800 rounded-lg p-6"
                     >
-                      <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center justify-between mb-6">
                         <div>
                           <h4 className="text-lg font-medium">
                             {release.name}
@@ -257,38 +337,98 @@ export default function Home() {
                           </p>
                         </div>
                       </div>
-                      <div className="grid md:grid-cols-2 gap-4">
-                        {release.assets.map((asset) => (
-                          <div
-                            key={asset.name}
-                            className="flex items-center justify-between p-4 bg-gray-800 rounded-lg"
-                          >
-                            <div className="flex items-center space-x-3">
-                              <div
-                                className={`w-2 h-2 rounded-full ${
-                                  asset.name.endsWith(".deb")
-                                    ? "bg-orange-500"
-                                    : "bg-red-500"
-                                }`}
-                              ></div>
-                              <div>
-                                <p className="text-sm font-medium">
-                                  {asset.name.endsWith(".deb") ? "DEB" : "RPM"}
-                                </p>
-                                <p className="text-xs text-gray-400">
-                                  {formatFileSize(asset.size)}
-                                </p>
-                              </div>
-                            </div>
-                            <a
-                              href={asset.browser_download_url}
-                              className="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition-colors"
-                            >
-                              <Download className="w-4 h-4" />
-                            </a>
+
+                      {/* x86_64 packages */}
+                      <div className="mb-4">
+                        <div className="flex items-center space-x-2 mb-3">
+                          <div className="bg-blue-500/20 p-1 rounded">
+                            <Cpu className="w-3 h-3 text-blue-400" />
                           </div>
-                        ))}
+                          <h5 className="text-sm font-medium text-white">
+                            x86_64 / AMD64
+                          </h5>
+                        </div>
+                        <div className="grid md:grid-cols-2 gap-3">
+                          {release.assets
+                            .filter(
+                              (asset) =>
+                                asset.name.includes("amd64") ||
+                                asset.name.includes("x86_64")
+                            )
+                            .map((asset) => (
+                              <div
+                                key={asset.name}
+                                className="flex items-center justify-between p-3 bg-gray-900 rounded-lg"
+                              >
+                                <div>
+                                  <p className="text-sm font-medium">
+                                    {asset.name.endsWith(".deb")
+                                      ? "DEB"
+                                      : "RPM"}
+                                  </p>
+                                  <p className="text-xs text-gray-400">
+                                    {formatFileSize(asset.size)}
+                                  </p>
+                                </div>
+                                <a
+                                  href={asset.browser_download_url}
+                                  className="bg-gray-800 hover:bg-gray-700 p-2 rounded-lg transition-colors"
+                                >
+                                  <Download className="w-4 h-4" />
+                                </a>
+                              </div>
+                            ))}
+                        </div>
                       </div>
+
+                      {/* ARM64 packages */}
+                      {release.assets.some(
+                        (asset) =>
+                          asset.name.includes("arm64") ||
+                          asset.name.includes("aarch64")
+                      ) && (
+                        <div>
+                          <div className="flex items-center space-x-2 mb-3">
+                            <div className="bg-green-500/20 p-1 rounded">
+                              <Cpu className="w-3 h-3 text-green-400" />
+                            </div>
+                            <h5 className="text-sm font-medium text-white">
+                              ARM64 / AArch64
+                            </h5>
+                          </div>
+                          <div className="grid md:grid-cols-2 gap-3">
+                            {release.assets
+                              .filter(
+                                (asset) =>
+                                  asset.name.includes("arm64") ||
+                                  asset.name.includes("aarch64")
+                              )
+                              .map((asset) => (
+                                <div
+                                  key={asset.name}
+                                  className="flex items-center justify-between p-3 bg-gray-900 rounded-lg"
+                                >
+                                  <div>
+                                    <p className="text-sm font-medium">
+                                      {asset.name.endsWith(".deb")
+                                        ? "DEB"
+                                        : "RPM"}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                      {formatFileSize(asset.size)}
+                                    </p>
+                                  </div>
+                                  <a
+                                    href={asset.browser_download_url}
+                                    className="bg-gray-800 hover:bg-gray-700 p-2 rounded-lg transition-colors"
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </a>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

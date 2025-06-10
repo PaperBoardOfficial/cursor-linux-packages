@@ -18,7 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.check.outputs.version }}
-      download_url: ${{ steps.check.outputs.download_url }}
+      x64_download_url: ${{ steps.check.outputs.x64_download_url }}
+      arm64_download_url: ${{ steps.check.outputs.arm64_download_url }}
       commit_sha: ${{ steps.check.outputs.commit_sha }}
       should_build: ${{ steps.check.outputs.should_build }}
     steps:
@@ -28,14 +29,18 @@ jobs:
       - name: Check for new version
         id: check
         run: |
-          # Fetch latest version info from Cursor API
-          RESPONSE=$(curl -s "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable")
-          VERSION=$(echo "$RESPONSE" | jq -r '.version')
-          DOWNLOAD_URL=$(echo "$RESPONSE" | jq -r '.downloadUrl')
-          COMMIT_SHA=$(echo "$RESPONSE" | jq -r '.commitSha')
+          # Fetch latest version info from Cursor API for both architectures
+          X64_RESPONSE=$(curl -s "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable")
+          ARM64_RESPONSE=$(curl -s "https://www.cursor.com/api/download?platform=linux-arm64&releaseTrack=stable")
+
+          VERSION=$(echo "$X64_RESPONSE" | jq -r '.version')
+          X64_DOWNLOAD_URL=$(echo "$X64_RESPONSE" | jq -r '.downloadUrl')
+          ARM64_DOWNLOAD_URL=$(echo "$ARM64_RESPONSE" | jq -r '.downloadUrl')
+          COMMIT_SHA=$(echo "$X64_RESPONSE" | jq -r '.commitSha')
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+          echo "x64_download_url=$X64_DOWNLOAD_URL" >> $GITHUB_OUTPUT
+          echo "arm64_download_url=$ARM64_DOWNLOAD_URL" >> $GITHUB_OUTPUT
           echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
 
           # Check if this version already exists as a release
@@ -53,6 +58,18 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            deb_arch: amd64
+            rpm_arch: x86_64
+            download_url_key: x64_download_url
+          - arch: arm64
+            deb_arch: arm64
+            rpm_arch: aarch64
+            download_url_key: arm64_download_url
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -72,27 +89,27 @@ jobs:
       - name: Download and extract AppImage
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
-          DOWNLOAD_URL="${{ needs.check-version.outputs.download_url }}"
+          DOWNLOAD_URL="${{ needs.check-version.outputs[matrix.download_url_key] }}"
 
-          echo "Downloading Cursor $VERSION from $DOWNLOAD_URL"
-          curl -L -o "Cursor-$VERSION-x86_64.AppImage" "$DOWNLOAD_URL"
-          chmod +x "Cursor-$VERSION-x86_64.AppImage"
+          echo "Downloading Cursor $VERSION (${{ matrix.arch }}) from $DOWNLOAD_URL"
+          curl -L -o "Cursor-$VERSION-${{ matrix.arch }}.AppImage" "$DOWNLOAD_URL"
+          chmod +x "Cursor-$VERSION-${{ matrix.arch }}.AppImage"
 
           # Extract AppImage
-          "./Cursor-$VERSION-x86_64.AppImage" --appimage-extract
-          mv squashfs-root cursor-$VERSION
+          "./Cursor-$VERSION-${{ matrix.arch }}.AppImage" --appimage-extract
+          mv squashfs-root cursor-$VERSION-${{ matrix.arch }}
 
           # Debug: List extracted contents
-          echo "Contents of extracted AppImage:"
-          ls -la cursor-$VERSION/
+          echo "Contents of extracted AppImage (${{ matrix.arch }}):"
+          ls -la cursor-$VERSION-${{ matrix.arch }}/
           echo "Looking for executable files:"
-          find cursor-$VERSION/ -type f -executable -name "*cursor*" -o -name "*Cursor*" | head -10
+          find cursor-$VERSION-${{ matrix.arch }}/ -type f -executable -name "*cursor*" -o -name "*Cursor*" | head -10
 
       - name: Build DEB package
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           PACKAGE_NAME="cursor"
-          ARCHITECTURE="amd64"
+          ARCHITECTURE="${{ matrix.deb_arch }}"
           MAINTAINER="Cursor Linux Packages <noreply@github.com>"
           PACKAGE_DIR="cursor_${VERSION}_${ARCHITECTURE}"
 
@@ -121,7 +138,7 @@ jobs:
           EOF
 
           # Copy application files
-          cp -r cursor-$VERSION/* "$PACKAGE_DIR/opt/Cursor/"
+          cp -r cursor-$VERSION-${{ matrix.arch }}/* "$PACKAGE_DIR/opt/Cursor/"
 
           # Find the main executable (could be 'cursor', 'Cursor', or 'AppRun')
           MAIN_EXECUTABLE=""
@@ -158,8 +175,8 @@ jobs:
           EOF
 
           # Handle icon if it exists
-          if [ -f "cursor-$VERSION/co.anysphere.cursor.png" ]; then
-            SOURCE_ICON="cursor-$VERSION/co.anysphere.cursor.png"
+          if [ -f "cursor-$VERSION-${{ matrix.arch }}/co.anysphere.cursor.png" ]; then
+            SOURCE_ICON="cursor-$VERSION-${{ matrix.arch }}/co.anysphere.cursor.png"
             ICON_SIZES=(16 32 48 64 128 256)
             for size in "${ICON_SIZES[@]}"; do
               target_dir="$PACKAGE_DIR/usr/share/icons/hicolor/${size}x${size}/apps"
@@ -258,7 +275,7 @@ jobs:
           Summary:        Cursor - AI-first coding environment
           License:        Proprietary
           URL:            https://cursor.so
-          BuildArch:      x86_64
+          BuildArch:      ${{ matrix.rpm_arch }}
           Requires:       gtk3, libnotify, nss, libXScrnSaver, libXtst, xdg-utils, at-spi2-atk, libuuid, libsecret
 
           %description
@@ -279,7 +296,7 @@ jobs:
           mkdir -p \$RPM_BUILD_ROOT/usr/bin
 
           # Copy application files
-          cp -r %{_sourcedir}/cursor-$VERSION/* \$RPM_BUILD_ROOT/opt/Cursor/
+          cp -r %{_sourcedir}/cursor-$VERSION-${{ matrix.arch }}/* \$RPM_BUILD_ROOT/opt/Cursor/
 
           # Create desktop file
           cat > \$RPM_BUILD_ROOT/usr/share/applications/cursor.desktop << 'DESKTOP_EOF'
@@ -321,15 +338,36 @@ jobs:
           EOF
 
           # Copy source files
-          cp -r cursor-$VERSION ~/rpmbuild/SOURCES/
+          cp -r cursor-$VERSION-${{ matrix.arch }} ~/rpmbuild/SOURCES/
 
           # Build RPM
           rpmbuild -bb ~/rpmbuild/SPECS/cursor.spec
 
           # Copy the built RPM to current directory
-          cp ~/rpmbuild/RPMS/x86_64/cursor-$VERSION-1.*.rpm ./
+          cp ~/rpmbuild/RPMS/${{ matrix.rpm_arch }}/cursor-$VERSION-1.*.rpm ./
 
-          echo "RPM package created: cursor-$VERSION-1.*.rpm"
+          echo "RPM package created: cursor-$VERSION-1.${{ matrix.rpm_arch }}.rpm"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.arch }}
+          path: |
+            cursor_*_${{ matrix.deb_arch }}.deb
+            cursor-*-1.${{ matrix.rpm_arch }}.rpm
+
+  create-release:
+    needs: [check-version, build-packages]
+    if: needs.check-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/
 
       - name: Create Release
         run: |
@@ -345,13 +383,24 @@ jobs:
           ## Installation
 
           ### Debian/Ubuntu (.deb)
+
+          **x86_64/amd64:**
           \`\`\`bash
           wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor_${VERSION}_amd64.deb
           sudo dpkg -i cursor_${VERSION}_amd64.deb
           sudo apt-get install -f  # Fix any missing dependencies
           \`\`\`
 
+          **ARM64:**
+          \`\`\`bash
+          wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor_${VERSION}_arm64.deb
+          sudo dpkg -i cursor_${VERSION}_arm64.deb
+          sudo apt-get install -f  # Fix any missing dependencies
+          \`\`\`
+
           ### RHEL/Fedora/CentOS (.rpm)
+
+          **x86_64:**
           \`\`\`bash
           wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor-$VERSION-1.x86_64.rpm
           sudo rpm -i cursor-$VERSION-1.x86_64.rpm
@@ -359,11 +408,19 @@ jobs:
           sudo dnf install cursor-$VERSION-1.x86_64.rpm
           \`\`\`
 
+          **ARM64:**
+          \`\`\`bash
+          wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor-$VERSION-1.aarch64.rpm
+          sudo rpm -i cursor-$VERSION-1.aarch64.rpm
+          # or
+          sudo dnf install cursor-$VERSION-1.aarch64.rpm
+          \`\`\`
+
           ## Package Details
           - **Upstream Version**: $VERSION
           - **Commit SHA**: $COMMIT_SHA
           - **Build Date**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          - **Architecture**: x86_64 (amd64)
+          - **Architectures**: x86_64 (amd64), ARM64 (aarch64)
 
           ## Usage
           After installation, you can launch Cursor from:
@@ -374,12 +431,12 @@ jobs:
           If you encounter any issues with these packages, please report them at: https://github.com/${{ github.repository }}/issues
           EOF
 
-          # Create the release
+          # Create the release with all packages
           gh release create "v$VERSION" \
             --title "Cursor $VERSION" \
             --notes-file release-notes.md \
-            cursor_${VERSION}_amd64.deb \
-            cursor-$VERSION-1.*.rpm
+            packages/packages-x64/* \
+            packages/packages-arm64/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -394,8 +451,16 @@ jobs:
             "version": "$VERSION",
             "commit_sha": "$COMMIT_SHA",
             "release_date": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
-            "deb_download_url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor_${VERSION}_amd64.deb",
-            "rpm_download_url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor-$VERSION-1.x86_64.rpm"
+            "packages": {
+              "x64": {
+                "deb": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor_${VERSION}_amd64.deb",
+                "rpm": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor-$VERSION-1.x86_64.rpm"
+              },
+              "arm64": {
+                "deb": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor_${VERSION}_arm64.deb", 
+                "rpm": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/cursor-$VERSION-1.aarch64.rpm"
+              }
+            }
           }
           EOF
 
