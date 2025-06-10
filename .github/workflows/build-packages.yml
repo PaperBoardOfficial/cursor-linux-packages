@@ -78,6 +78,12 @@ jobs:
           "./Cursor-$VERSION-x86_64.AppImage" --appimage-extract
           mv squashfs-root cursor-$VERSION
 
+          # Debug: List extracted contents
+          echo "Contents of extracted AppImage:"
+          ls -la cursor-$VERSION/
+          echo "Looking for executable files:"
+          find cursor-$VERSION/ -type f -executable -name "*cursor*" -o -name "*Cursor*" | head -10
+
       - name: Build DEB package
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
@@ -112,6 +118,26 @@ jobs:
 
           # Copy application files
           cp -r cursor-$VERSION/* "$PACKAGE_DIR/opt/Cursor/"
+
+          # Find the main executable (could be 'cursor', 'Cursor', or 'AppRun')
+          MAIN_EXECUTABLE=""
+          if [ -f "$PACKAGE_DIR/opt/Cursor/cursor" ]; then
+            MAIN_EXECUTABLE="cursor"
+          elif [ -f "$PACKAGE_DIR/opt/Cursor/Cursor" ]; then
+            MAIN_EXECUTABLE="Cursor"
+          elif [ -f "$PACKAGE_DIR/opt/Cursor/AppRun" ]; then
+            MAIN_EXECUTABLE="AppRun"
+          else
+            # Find any executable file that might be the main app
+            MAIN_EXECUTABLE=$(find "$PACKAGE_DIR/opt/Cursor/" -maxdepth 1 -type f -executable | head -1 | xargs basename)
+          fi
+
+          echo "Found main executable: $MAIN_EXECUTABLE"
+
+          # If the executable is not named 'cursor', create a symlink
+          if [ "$MAIN_EXECUTABLE" != "cursor" ] && [ -n "$MAIN_EXECUTABLE" ]; then
+            ln -sf "/opt/Cursor/$MAIN_EXECUTABLE" "$PACKAGE_DIR/opt/Cursor/cursor"
+          fi
 
           # Create desktop file
           cat > "$PACKAGE_DIR/usr/share/applications/cursor.desktop" << EOF
@@ -156,11 +182,13 @@ jobs:
               ln -sf '/opt/Cursor/cursor' '/usr/bin/cursor'
           fi
 
-          # Set proper permissions
-          if ! { [[ -L /proc/self/ns/user ]] && unshare --user true; }; then
-              chmod 4755 '/opt/Cursor/chrome-sandbox' || true
-          else
-              chmod 0755 '/opt/Cursor/chrome-sandbox' || true
+          # Set proper permissions for chrome-sandbox
+          if [ -f '/opt/Cursor/chrome-sandbox' ]; then
+              if ! { [[ -L /proc/self/ns/user ]] && unshare --user true; }; then
+                  chmod 4755 '/opt/Cursor/chrome-sandbox' || true
+              else
+                  chmod 0755 '/opt/Cursor/chrome-sandbox' || true
+              fi
           fi
 
           # Update desktop database
@@ -190,8 +218,14 @@ jobs:
           chmod 755 "$PACKAGE_DIR/DEBIAN/postinst"
           chmod 755 "$PACKAGE_DIR/DEBIAN/postrm"
 
-          # Set proper permissions
-          chmod 755 "$PACKAGE_DIR/opt/Cursor/cursor"
+          # Set proper permissions for executables
+          if [ -n "$MAIN_EXECUTABLE" ]; then
+            chmod 755 "$PACKAGE_DIR/opt/Cursor/$MAIN_EXECUTABLE"
+          fi
+          # Ensure cursor symlink/file has correct permissions
+          if [ -f "$PACKAGE_DIR/opt/Cursor/cursor" ] || [ -L "$PACKAGE_DIR/opt/Cursor/cursor" ]; then
+            chmod 755 "$PACKAGE_DIR/opt/Cursor/cursor"
+          fi
           find "$PACKAGE_DIR/opt/Cursor" -name "*.so*" -exec chmod 755 {} \; || true
 
           # Generate md5sums
