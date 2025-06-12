@@ -26,6 +26,10 @@ GitHub Actions checks for new Cursor releases daily and automatically:
 
 Found a bug? [Open an issue](https://github.com/PaperBoardOfficial/cursor-linux-packages/issues)
 
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 ---
 
 **Disclaimer**: Unofficial packaging project. Cursor is owned by [Anysphere Inc](https://cursor.com).
