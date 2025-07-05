@@ -30,8 +30,8 @@ jobs:
         id: check
         run: |
           # Fetch latest version info from Cursor API for both architectures
-          X64_RESPONSE=$(curl -s -f "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable" 2>/dev/null)
-          ARM64_RESPONSE=$(curl -s -f "https://www.cursor.com/api/download?platform=linux-arm64&releaseTrack=stable" 2>/dev/null)
+          X64_RESPONSE=$(curl -s -f -L --compressed "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable" 2>/dev/null | awk '/^{.*}$/{print; exit}')
+          ARM64_RESPONSE=$(curl -s -f -L --compressed "https://www.cursor.com/api/download?platform=linux-arm64&releaseTrack=stable" 2>/dev/null | awk '/^{.*}$/{print; exit}')
 
           echo "X64_RESPONSE: $X64_RESPONSE"
           echo "ARM64_RESPONSE: $ARM64_RESPONSE"
@@ -46,10 +46,10 @@ jobs:
             exit 1
           fi
 
-          VERSION=$(echo "$X64_RESPONSE" | tr -d '\n\r' | jq -r '.version')
-          X64_DOWNLOAD_URL=$(echo "$X64_RESPONSE" | tr -d '\n\r' | jq -r '.downloadUrl')
-          ARM64_DOWNLOAD_URL=$(echo "$ARM64_RESPONSE" | tr -d '\n\r' | jq -r '.downloadUrl')
-          COMMIT_SHA=$(echo "$X64_RESPONSE" | tr -d '\n\r' | jq -r '.commitSha')
+          VERSION=$(echo "$X64_RESPONSE" | jq -r '.version')
+          X64_DOWNLOAD_URL=$(echo "$X64_RESPONSE" | jq -r '.downloadUrl')
+          ARM64_DOWNLOAD_URL=$(echo "$ARM64_RESPONSE" | jq -r '.downloadUrl')
+          COMMIT_SHA=$(echo "$X64_RESPONSE" | jq -r '.commitSha')
 
           # Ensure variables are not empty after jq parsing
           if [ -z "$VERSION" ]; then
