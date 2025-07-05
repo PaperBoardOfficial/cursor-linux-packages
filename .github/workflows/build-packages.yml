@@ -33,10 +33,10 @@ jobs:
           X64_RESPONSE=$(curl -s "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable")
           ARM64_RESPONSE=$(curl -s "https://www.cursor.com/api/download?platform=linux-arm64&releaseTrack=stable")
 
-          VERSION=$(echo "$X64_RESPONSE" | jq -r '.version')
-          X64_DOWNLOAD_URL=$(echo "$X64_RESPONSE" | jq -r '.downloadUrl')
-          ARM64_DOWNLOAD_URL=$(echo "$ARM64_RESPONSE" | jq -r '.downloadUrl')
-          COMMIT_SHA=$(echo "$X64_RESPONSE" | jq -r '.commitSha')
+          VERSION=$(echo "$X64_RESPONSE" | grep -m 1 '^{.*}$' | jq -r '.version')
+          X64_DOWNLOAD_URL=$(echo "$X64_RESPONSE" | grep -m 1 '^{.*}$' | jq -r '.downloadUrl')
+          ARM64_DOWNLOAD_URL=$(echo "$ARM64_RESPONSE" | grep -m 1 '^{.*}$' | jq -r '.downloadUrl')
+          COMMIT_SHA=$(echo "$X64_RESPONSE" | grep -m 1 '^{.*}$' | jq -r '.commitSha')
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "x64_download_url=$X64_DOWNLOAD_URL" >> $GITHUB_OUTPUT
