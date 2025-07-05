@@ -43,10 +43,10 @@ jobs:
             exit 1
           fi
 
-          VERSION=$(echo "$X64_RESPONSE" | grep -m 1 '^{.*}$' | jq -r '.version')
-          X64_DOWNLOAD_URL=$(echo "$X64_RESPONSE" | grep -m 1 '^{.*}$' | jq -r '.downloadUrl')
-          ARM64_DOWNLOAD_URL=$(echo "$ARM64_RESPONSE" | grep -m 1 '^{.*}$' | jq -r '.downloadUrl')
-          COMMIT_SHA=$(echo "$X64_RESPONSE" | grep -m 1 '^{.*}$' | jq -r '.commitSha')
+          VERSION=$(echo "$X64_RESPONSE" | tr -d '\n\r' | jq -r '.version')
+          X64_DOWNLOAD_URL=$(echo "$X64_RESPONSE" | tr -d '\n\r' | jq -r '.downloadUrl')
+          ARM64_DOWNLOAD_URL=$(echo "$ARM64_RESPONSE" | tr -d '\n\r' | jq -r '.downloadUrl')
+          COMMIT_SHA=$(echo "$X64_RESPONSE" | tr -d '\n\r' | jq -r '.commitSha')
 
           # Ensure variables are not empty after jq parsing
           if [ -z "$VERSION" ]; then
