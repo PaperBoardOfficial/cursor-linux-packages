@@ -30,8 +30,11 @@ jobs:
         id: check
         run: |
           # Fetch latest version info from Cursor API for both architectures
-          X64_RESPONSE=$(curl -s "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable")
-          ARM64_RESPONSE=$(curl -s "https://www.cursor.com/api/download?platform=linux-arm64&releaseTrack=stable")
+          X64_RESPONSE=$(curl -s -f "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable" 2>/dev/null)
+          ARM64_RESPONSE=$(curl -s -f "https://www.cursor.com/api/download?platform=linux-arm64&releaseTrack=stable" 2>/dev/null)
+
+          echo "X64_RESPONSE: $X64_RESPONSE"
+          echo "ARM64_RESPONSE: $ARM64_RESPONSE"
 
           # Ensure responses are not empty
           if [ -z "$X64_RESPONSE" ]; then
