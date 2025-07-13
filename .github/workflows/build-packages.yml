@@ -26,49 +26,44 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check for new version
+      - name: Check for new version (oslook/cursor-ai-downloads)
         id: check
         run: |
-          # Fetch latest version info from Cursor API for both architectures
-          X64_RESPONSE=$(curl -s -f -L --compressed "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable" 2>/dev/null | awk '/^{.*}$/{print; exit}')
-          ARM64_RESPONSE=$(curl -s -f -L --compressed "https://www.cursor.com/api/download?platform=linux-arm64&releaseTrack=stable" 2>/dev/null | awk '/^{.*}$/{print; exit}')
-
-          echo "X64_RESPONSE: $X64_RESPONSE"
-          echo "ARM64_RESPONSE: $ARM64_RESPONSE"
-
-          # Ensure responses are not empty
-          if [ -z "$X64_RESPONSE" ]; then
-            echo "Error: X64_RESPONSE is empty."
-            exit 1
-          fi
-          if [ -z "$ARM64_RESPONSE" ]; then
-            echo "Error: ARM64_RESPONSE is empty."
+          echo "Fetching latest version info from oslook/cursor-ai-downloads repository..."
+          
+          # Fetch the version history JSON
+          JSON_DATA=$(curl -sL "https://raw.githubusercontent.com/oslook/cursor-ai-downloads/main/version-history.json")
+          
+          if [ -z "$JSON_DATA" ]; then
+            echo "Error: Failed to download version-history.json."
             exit 1
           fi
 
-          VERSION=$(echo "$X64_RESPONSE" | jq -r '.version')
-          X64_DOWNLOAD_URL=$(echo "$X64_RESPONSE" | jq -r '.downloadUrl')
-          ARM64_DOWNLOAD_URL=$(echo "$ARM64_RESPONSE" | jq -r '.downloadUrl')
-          COMMIT_SHA=$(echo "$X64_RESPONSE" | jq -r '.commitSha')
+          # Get the latest entry (the first one in the array)
+          LATEST_ENTRY=$(echo "$JSON_DATA" | jq -c '.versions[0]')
+          
+          # Extract the required information using jq
+          VERSION=$(echo "$LATEST_ENTRY" | jq -r '.version')
+          X64_DOWNLOAD_URL=$(echo "$LATEST_ENTRY" | jq -r '.platforms["linux-x64"]')
+          ARM64_DOWNLOAD_URL=$(echo "$LATEST_ENTRY" | jq -r '.platforms["linux-arm64"]')
+          # Commit SHA is not available in this data source
+          COMMIT_SHA="N/A"
 
-          # Ensure variables are not empty after jq parsing
-          if [ -z "$VERSION" ]; then
+          # Ensure variables are not empty after parsing
+          if [ -z "$VERSION" ] || [ "$VERSION" == "null" ]; then
             echo "Error: VERSION is empty after parsing."
             exit 1
           fi
-          if [ -z "$X64_DOWNLOAD_URL" ]; then
+          if [ -z "$X64_DOWNLOAD_URL" ] || [ "$X64_DOWNLOAD_URL" == "null" ]; then
             echo "Error: X64_DOWNLOAD_URL is empty after parsing."
             exit 1
           fi
-          if [ -z "$ARM64_DOWNLOAD_URL" ]; then
+          if [ -z "$ARM64_DOWNLOAD_URL" ] || [ "$ARM64_DOWNLOAD_URL" == "null" ]; then
             echo "Error: ARM64_DOWNLOAD_URL is empty after parsing."
             exit 1
           fi
-          if [ -z "$COMMIT_SHA" ]; then
-            echo "Error: COMMIT_SHA is empty after parsing."
-            exit 1
-          fi
 
+          echo "Latest Version Found: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "x64_download_url=$X64_DOWNLOAD_URL" >> $GITHUB_OUTPUT
           echo "arm64_download_url=$ARM64_DOWNLOAD_URL" >> $GITHUB_OUTPUT
