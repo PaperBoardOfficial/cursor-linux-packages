@@ -1,15 +1,15 @@
 {
-  "version": "1.5.9",
-  "commit_sha": "de327274300c6f38ec9f4240d11e82c3b0660b29",
-  "release_date": "2025-08-31T03:07:20Z",
+  "version": "1.5.10",
+  "commit_sha": "7ad52fff14641ec6373a31c19463856cace32640",
+  "release_date": "2025-09-05T02:57:50Z",
   "packages": {
     "x64": {
-      "deb": "https://github.com/PaperBoardOfficial/cursor-linux-packages/releases/download/v1.5.9/cursor_1.5.9_amd64.deb",
-      "rpm": "https://github.com/PaperBoardOfficial/cursor-linux-packages/releases/download/v1.5.9/cursor-1.5.9-1.x86_64.rpm"
+      "deb": "https://github.com/PaperBoardOfficial/cursor-linux-packages/releases/download/v1.5.10/cursor_1.5.10_amd64.deb",
+      "rpm": "https://github.com/PaperBoardOfficial/cursor-linux-packages/releases/download/v1.5.10/cursor-1.5.10-1.x86_64.rpm"
     },
     "arm64": {
-      "deb": "https://github.com/PaperBoardOfficial/cursor-linux-packages/releases/download/v1.5.9/cursor_1.5.9_arm64.deb", 
-      "rpm": "https://github.com/PaperBoardOfficial/cursor-linux-packages/releases/download/v1.5.9/cursor-1.5.9-1.aarch64.rpm"
+      "deb": "https://github.com/PaperBoardOfficial/cursor-linux-packages/releases/download/v1.5.10/cursor_1.5.10_arm64.deb", 
+      "rpm": "https://github.com/PaperBoardOfficial/cursor-linux-packages/releases/download/v1.5.10/cursor-1.5.10-1.aarch64.rpm"
     }
   }
 }
